@@ -1254,7 +1254,7 @@ if selection == "PHÂN TÍCH 1 CÂU TRỰC TIẾP":
             tokens = tokenizer.convert_ids_to_tokens(input_ids[0].tolist())
 
             # ---------- Prediction ----------
-            with torch.inference_mode():
+            with torch.no_grad():
                 logits, attn_weights = model(input_ids, attention_mask)
 
             probs = torch.softmax(logits, dim=1)
