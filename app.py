@@ -1034,7 +1034,7 @@ def load_model_and_tokenizer():
     model = PhoBERT_BILSTM_Attention()
     
     # Nếu khi lưu trên Colab bạn dùng torch.save(model.state_dict(), ...) thì giữ nguyên dòng dưới:
-    checkpoint = torch.load(model_path, map_location=device)
+    checkpoint = torch.load(model_path, map_location=device, weights_only=False)
     if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
         model.load_state_dict(checkpoint["model_state_dict"])
     else:
