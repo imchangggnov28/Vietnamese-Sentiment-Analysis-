@@ -11,10 +11,10 @@ from transformers import AutoTokenizer
 from vncorenlp import VnCoreNLP
 
 from models import PhoBERT_BILSTM_Attention
+torch.set_num_threads(2)
 # =========================================================
 # PAGE CONFIG
 # =========================================================
-
 st.set_page_config(
     page_title="HỆ THỐNG PHÂN LOẠI CẢM XÚC VĂN BẢN",
     page_icon="🧠",
@@ -1043,7 +1043,9 @@ def load_model_and_tokenizer():
         
     model.to(device)
     model.eval()
-    
+    model = torch.quantization.quantize_dynamic(
+    model, {torch.nn.Linear, torch.nn.LSTM}, dtype=torch.qint8
+)
     return tokenizer, model
 def load_resources():
     tokenizer, model = load_model_and_tokenizer()
@@ -1256,7 +1258,7 @@ if selection == "PHÂN TÍCH 1 CÂU TRỰC TIẾP":
             tokens = tokenizer.convert_ids_to_tokens(input_ids[0].tolist())
 
             # ---------- Prediction ----------
-            with torch.no_grad():
+            with torch.inference_mode():
                 logits, attn_weights = model(input_ids, attention_mask)
 
             probs = torch.softmax(logits, dim=1)
