@@ -1043,9 +1043,6 @@ def load_model_and_tokenizer():
         
     model.to(device)
     model.eval()
-    model = torch.quantization.quantize_dynamic(
-    model, {torch.nn.Linear, torch.nn.LSTM}, dtype=torch.qint8
-)
     return tokenizer, model
 def load_resources():
     tokenizer, model = load_model_and_tokenizer()
