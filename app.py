@@ -1008,7 +1008,7 @@ def load_vncorenlp():
     jar_path = os.path.join(base_dir, "VnCoreNLP", "VnCoreNLP-1.1.1.jar") # Đổi thành 1.1.1 nếu file của bạn là bản 1.1.1
     
     # Chỉ nạp 'wseg' (tách từ) và giới hạn RAM 1GB (-Xmx1g) để chạy mượt trên gói Free của Streamlit
-    annotator = VnCoreNLP(jar_path, annotators="wseg", max_heap_size='-Xmx1g')
+    annotator = VnCoreNLP(jar_path, annotators="wseg", max_heap_size='-Xmx512m')
     return annotator
 @st.cache_resource
 def load_model_and_tokenizer():
