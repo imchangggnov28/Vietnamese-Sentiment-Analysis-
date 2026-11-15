@@ -1,0 +1,10 @@
+torch
+transformers
+streamlit
+pandas
+numpy
+scikit-learn
+matplotlib
+openpyxl
+google-play-scraper
+vncorenlp
