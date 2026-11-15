@@ -11,7 +11,6 @@ from transformers import AutoTokenizer
 from vncorenlp import VnCoreNLP
 
 from models import PhoBERT_BILSTM_Attention
-torch.set_num_threads(2)
 # =========================================================
 # PAGE CONFIG
 # =========================================================
