@@ -1024,7 +1024,8 @@ def load_model_and_tokenizer():
     
     # Thay bằng đường link tải trực tiếp file best_model.pt trên Hugging Face của bạn
     model_url = "https://huggingface.co/immchangnov28/vietnamese-sentiment-model/resolve/main/best_model.pt"
-
+    if os.path.exists(model_path) and os.path.getsize(model_path) < 1024 * 1024:
+        os.remove(model_path)
     if not os.path.exists(model_path):
         with st.spinner("Đang tải trọng số mô hình lần đầu, vui lòng chờ..."):
             urllib.request.urlretrieve(model_url, model_path)
