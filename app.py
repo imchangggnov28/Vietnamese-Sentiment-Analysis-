@@ -1023,7 +1023,7 @@ def load_model_and_tokenizer():
     model_path = os.path.join(base_dir, "best_model.pt")
     
     # Thay bằng đường link tải trực tiếp file best_model.pt trên Hugging Face của bạn
-    model_url = "https://huggingface.co/immchangnov28/vietnamese-sentiment-model/blob/main/best_model.pt"
+    model_url = "https://huggingface.co/immchangnov28/vietnamese-sentiment-model/resolve/main/best_model.pt"
 
     if not os.path.exists(model_path):
         with st.spinner("Đang tải trọng số mô hình lần đầu, vui lòng chờ..."):
