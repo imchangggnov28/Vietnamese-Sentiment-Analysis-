@@ -66,18 +66,56 @@ def save_batch(file_name,texts,labels,positive_probs,negative_probs,user_id):
  with closing(_connect()) as c:
   with c: c.executemany("INSERT INTO predictions(created_at,source,batch_id,file_name,text,label,positive_prob,negative_prob,user_id) VALUES(?,'batch',?,?,?,?,?,?,?)",rows)
  return batch_id
-def get_history(label=None,source=None,keyword=None,limit=100,user_id=None):
- w=[]; a=[]
- if user_id is not None: w.append("p.user_id=?"); a.append(int(user_id))
- if label: w.append("p.label=?"); a.append(label)
- if source: w.append("p.source=?"); a.append(source)
- if keyword and keyword.strip():
-    like = f"%{keyword.strip()}%"
-    w.append("(p.text LIKE ? OR p.file_name LIKE ? OR p.id LIKE ?)")
-    a.extend([like, like, like])
- where=("WHERE "+" AND ".join(w)) if w else ""
- q=f"SELECT p.id,p.created_at,p.source,p.file_name,p.text,p.label,p.user_id,u.username,u.full_name,p.positive_prob,p.negative_prob,MAX(p.positive_prob,p.negative_prob) confidence FROM predictions p LEFT JOIN users u ON u.id=p.user_id {where} ORDER BY p.id DESC LIMIT ?"; a.append(int(limit))
- with closing(_connect()) as c: return pd.read_sql_query(q,c,params=a)
+
+#tìm kiếm bằng từ khoá và check ở tên người dùng, tên file, nội dung
+def get_history(label=None, source=None, keyword=None, limit=100, user_id=None):
+    w = []
+    a = []
+    if user_id is not None:
+        w.append("p.user_id=?")
+        a.append(int(user_id))
+    if label:
+        w.append("p.label=?")
+        a.append(label)
+    if source:
+        w.append("p.source=?")
+        a.append(source)
+    if keyword and keyword.strip():
+        like = f"%{keyword.strip()}%"
+        w.append("""
+            (
+                p.text LIKE ?
+                OR p.file_name LIKE ?
+                OR CAST(p.id AS TEXT) LIKE ?
+                OR u.username LIKE ?
+                OR u.full_name LIKE ?
+            )
+        """)
+        a.extend([like, like, like, like, like])
+    where = ("WHERE " + " AND ".join(w)) if w else ""
+    q = f"""
+        SELECT
+            p.id,
+            p.created_at,
+            p.source,
+            p.file_name,
+            p.text,
+            p.label,
+            p.user_id,
+            u.username,
+            u.full_name,
+            p.positive_prob,
+            p.negative_prob,
+            MAX(p.positive_prob, p.negative_prob) AS confidence
+        FROM predictions p
+        LEFT JOIN users u ON u.id = p.user_id
+        {where}
+        ORDER BY p.id DESC
+        LIMIT ?
+    """
+    a.append(int(limit))
+    with closing(_connect()) as c:
+        return pd.read_sql_query(q, c, params=a)
 def get_stats(user_id=None):
  where="WHERE user_id=?" if user_id is not None else ""; args=(LABEL_POS,LABEL_NEG)+((int(user_id),) if user_id is not None else ())
  with closing(_connect()) as c: r=c.execute(f"SELECT COUNT(*),SUM(label=?),SUM(label=?),COUNT(DISTINCT batch_id) FROM predictions {where}",args).fetchone()
