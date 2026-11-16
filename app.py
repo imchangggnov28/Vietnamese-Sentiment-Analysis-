@@ -864,7 +864,6 @@ if st.session_state.auth_user is None:
                 st.rerun()
             else:
                 st.error("Tên đăng nhập hoặc mật khẩu không đúng, hoặc tài khoản đã bị khóa.")
-        st.caption("Tài khoản quản trị mặc định: admin / Admin@123. Hãy đổi mật khẩu sau lần đăng nhập đầu tiên.")
     st.stop()
 
 CURRENT_USER = st.session_state.auth_user
