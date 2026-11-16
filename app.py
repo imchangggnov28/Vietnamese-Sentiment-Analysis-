@@ -1,19 +1,20 @@
 import io
+import os
+from pathlib import Path
+import urllib.request
 
 import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 import torch
 from transformers import AutoTokenizer
+from vncorenlp import VnCoreNLP
 
-import database as db
 from models import PhoBERT_BILSTM_Attention
-
-
+import database as db
 # =========================================================
 # PAGE CONFIG
 # =========================================================
-
 st.set_page_config(
     page_title="HỆ THỐNG PHÂN LOẠI CẢM XÚC VĂN BẢN",
     page_icon="🧠",
@@ -801,10 +802,41 @@ if "landing_view" not in st.session_state:
 if "history_nonce" not in st.session_state:
     st.session_state.history_nonce = 0
 
+# Khởi tạo SQLite và xác thực người dùng. Phần tải model bên dưới được giữ nguyên.
 try:
     db.init_db()
 except Exception as e:
-    st.warning(f"⚠️ Không thể khởi tạo cơ sở dữ liệu lịch sử: {e}")
+    st.error(f"Không thể khởi tạo cơ sở dữ liệu: {e}")
+    st.stop()
+
+if "auth_user" not in st.session_state:
+    st.session_state.auth_user = None
+
+if st.session_state.auth_user is None:
+    st.markdown("## 🔐 ĐĂNG NHẬP HỆ THỐNG")
+    with st.form("login_form"):
+        login_name = st.text_input("Tên đăng nhập")
+        login_password = st.text_input("Mật khẩu", type="password")
+        submitted = st.form_submit_button("ĐĂNG NHẬP", use_container_width=True)
+    if submitted:
+        account = db.authenticate(login_name, login_password)
+        if account:
+            st.session_state.auth_user = account
+            st.rerun()
+        else:
+            st.error("Tên đăng nhập hoặc mật khẩu không đúng, hoặc tài khoản đã bị khóa.")
+    st.info("Tài khoản quản trị mặc định: admin / Admin@123. Hãy đổi mật khẩu ngay sau lần đăng nhập đầu tiên.")
+    st.stop()
+
+CURRENT_USER = st.session_state.auth_user
+IS_ADMIN = CURRENT_USER["role"] == "admin"
+
+with st.sidebar:
+    st.markdown(f"**{CURRENT_USER['full_name']}** (@{CURRENT_USER['username']})")
+    st.caption(db.ROLES.get(CURRENT_USER['role'], CURRENT_USER['role']))
+    if st.button("Đăng xuất", key="logout_button"):
+        st.session_state.auth_user = None
+        st.rerun()
 
 
 # =========================================================
@@ -835,57 +867,75 @@ def render_back_button():
             st.rerun()
 
 
+def render_account_management():
+    st.html('<div class="section-label">QUẢN LÝ TÀI KHOẢN & PHÂN QUYỀN</div>')
+    with st.expander("➕ TẠO TÀI KHOẢN MỚI", expanded=True):
+        with st.form("create_account_form"):
+            c1, c2 = st.columns(2)
+            username = c1.text_input("Tên đăng nhập")
+            full_name = c2.text_input("Họ và tên")
+            c3, c4 = st.columns(2)
+            password = c3.text_input("Mật khẩu (ít nhất 8 ký tự)", type="password")
+            role_label = c4.selectbox("Vai trò", ["Người dùng", "Quản trị viên"])
+            if st.form_submit_button("TẠO TÀI KHOẢN", use_container_width=True):
+                try:
+                    db.create_user(username, password, full_name, "admin" if role_label == "Quản trị viên" else "user")
+                    st.success("Đã tạo tài khoản.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Không thể tạo tài khoản: {e}")
+    users = db.list_users()
+    display = users.copy()
+    display["Vai trò"] = display["role"].map(db.ROLES)
+    display["Trạng thái"] = display["is_active"].map({1: "Đang hoạt động", 0: "Đã khóa"})
+    st.dataframe(display[["id", "username", "full_name", "Vai trò", "Trạng thái", "created_at"]], use_container_width=True, hide_index=True)
+    if not users.empty:
+        selected_id = st.selectbox("Chọn tài khoản cần cập nhật", users["id"].tolist(), format_func=lambda x: f"{users.loc[users.id == x, 'username'].iloc[0]} (ID {x})")
+        selected = users.loc[users.id == selected_id].iloc[0]
+        with st.form("edit_account_form"):
+            new_name = st.text_input("Họ và tên", value=selected["full_name"])
+            new_role_label = st.selectbox("Vai trò", ["Người dùng", "Quản trị viên"], index=0 if selected["role"] == "user" else 1)
+            active = st.checkbox("Tài khoản đang hoạt động", value=bool(selected["is_active"]))
+            new_password = st.text_input("Mật khẩu mới (để trống nếu không đổi)", type="password")
+            if st.form_submit_button("LƯU THAY ĐỔI", use_container_width=True):
+                if int(selected_id) == int(CURRENT_USER["id"]) and (not active or new_role_label != "Quản trị viên"):
+                    st.error("Không thể tự khóa hoặc tự hạ quyền tài khoản quản trị đang đăng nhập.")
+                else:
+                    try:
+                        db.update_user(selected_id, full_name=new_name, role="admin" if new_role_label == "Quản trị viên" else "user", is_active=active, password=new_password or None)
+                        st.success("Đã cập nhật tài khoản.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Không thể cập nhật: {e}")
+
+
 def render_history_page():
-    """Trang xem, lọc, xuất và xóa lịch sử phân loại."""
     from matplotlib.ticker import MaxNLocator
 
     st.html('<div class="section-label">LỊCH SỬ PHÂN LOẠI CẢM XÚC</div>')
+    scope_user_id = None if IS_ADMIN else CURRENT_USER["id"]
+    st.caption("Phạm vi: Toàn hệ thống" if IS_ADMIN else f"Lịch sử cá nhân của {CURRENT_USER['full_name']}")
 
-    try:
-        stats = db.get_stats()
-    except Exception as e:
-        st.error(f"⚠️ Không thể đọc cơ sở dữ liệu. Chi tiết: {e}")
-        return
-
+    # ---------- Thống kê tổng quan ----------
+    stats = db.get_stats(user_id=scope_user_id)
     c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        st.html(metric_card(f"{stats['total']:,}", "Tổng số lượt"))
-    with c2:
-        st.html(metric_card(f"{stats['positive']:,}", "Tích cực", "metric-pos"))
-    with c3:
-        st.html(metric_card(f"{stats['negative']:,}", "Tiêu cực", "metric-neg"))
-    with c4:
-        st.html(metric_card(f"{stats['batch_files']:,}", "Lần phân tích file"))
-
-    if stats["total"] == 0:
-        st.html("<br>")
-        st.info(
-            "Chưa có lịch sử nào. Hãy phân tích một câu hoặc một file, "
-            "kết quả sẽ được lưu tại đây."
-        )
-        return
+    c1.html(metric_card(f"{stats['total']:,}", "Tổng số lượt"))
+    c2.html(metric_card(f"{stats['positive']:,}", "Tích cực", "metric-pos"))
+    c3.html(metric_card(f"{stats['negative']:,}", "Tiêu cực", "metric-neg"))
+    c4.html(metric_card(f"{stats['batch_files']:,}", "Lần phân tích file"))
 
     # ---------- Biểu đồ theo ngày ----------
-    daily = db.get_daily_counts()
+    daily = db.get_daily_counts(user_id=scope_user_id)
     if not daily.empty:
         st.html("<br>")
         st.html('<div class="section-label">SỐ LƯỢT PHÂN LOẠI THEO NGÀY</div>')
-
-        pivot = daily.pivot_table(
-            index="day", columns="label", values="n", fill_value=0
-        ).tail(14)
-
+        pivot = daily.pivot_table(index="day", columns="label", values="n", fill_value=0).tail(14)
         fig, ax = plt.subplots(figsize=(10, 3.2))
         bottom = pd.Series(0, index=pivot.index)
-
         for lbl, color in ((db.LABEL_POS, C_POS), (db.LABEL_NEG, C_NEG)):
             if lbl in pivot.columns:
-                ax.bar(
-                    pivot.index, pivot[lbl].values,
-                    bottom=bottom.values, color=color, label=lbl,
-                )
+                ax.bar(pivot.index, pivot[lbl].values, bottom=bottom.values, color=color, label=lbl)
                 bottom = bottom + pivot[lbl]
-
         ax.set_facecolor(C_PANEL)
         fig.patch.set_facecolor(C_BG)
         ax.tick_params(colors=C_MUTED, labelsize=9)
@@ -902,106 +952,68 @@ def render_history_page():
     # ---------- Bộ lọc ----------
     st.html("<br>")
     st.html('<div class="section-label">BỘ LỌC</div>')
-
     f1, f2, f3 = st.columns(3)
     with f1:
-        label_filter = st.selectbox(
-            "Nhãn cảm xúc", ["Tất cả", db.LABEL_POS, db.LABEL_NEG]
-        )
+        label_filter = st.selectbox("Nhãn cảm xúc", ["Tất cả", db.LABEL_POS, db.LABEL_NEG])
     with f2:
-        source_filter = st.selectbox(
-            "Nguồn dữ liệu", ["Tất cả", "Câu nhập trực tiếp", "File dữ liệu"]
-        )
+        source_filter = st.selectbox("Nguồn dữ liệu", ["Tất cả", "Câu nhập trực tiếp", "File dữ liệu"])
     with f3:
         limit = st.selectbox("Số dòng hiển thị", [50, 100, 500, 1000])
-
-    keyword = st.text_input(
-        "Tìm kiếm",
-        placeholder="Tìm theo nội dung hoặc tên file...",
-        label_visibility="collapsed",
-        key="history_keyword",
-    )
-
+    keyword = st.text_input("Tìm kiếm", placeholder="Tìm theo nội dung hoặc tên file...", label_visibility="collapsed", key="history_keyword")
     source_map = {"Câu nhập trực tiếp": "single", "File dữ liệu": "batch"}
-
     try:
         df = db.get_history(
             label=None if label_filter == "Tất cả" else label_filter,
-            source=source_map.get(source_filter),
-            keyword=keyword,
-            limit=limit,
+            source=source_map.get(source_filter), keyword=keyword, limit=limit,
+            user_id=scope_user_id,
         )
     except Exception as e:
         st.error(f"⚠️ Không thể đọc lịch sử. Chi tiết: {e}")
         return
-
     if df.empty:
         st.warning("Không có bản ghi nào phù hợp với bộ lọc.")
         return
 
     # ---------- Bảng lịch sử ----------
     st.html("<br>")
-    st.html(
-        '<div class="section-label">DANH SÁCH · bấm vào đầu dòng để chọn dòng cần xóa</div>'
-    )
-
-    view_df = pd.DataFrame(
-        {
-            "Thời gian": df["created_at"],
-            "Nguồn": df["source"].map({"single": "Câu nhập", "batch": "File"}),
-            "Nội dung": df["text"],
-            "Cảm xúc": df["label"],
-            "Độ tin cậy (%)": df["confidence"].round(2),
-            "Tên file": df["file_name"].fillna(""),
-        }
-    )
-
+    st.html('<div class="section-label">DANH SÁCH · bấm vào đầu dòng để chọn dòng cần xóa</div>')
+    view_data = {
+        "Thời gian": df["created_at"],
+        "Nguồn": df["source"].map({"single": "Câu nhập", "batch": "File"}),
+        "Nội dung": df["text"], "Cảm xúc": df["label"],
+        "Độ tin cậy (%)": df["confidence"].round(2),
+        "Tên file": df["file_name"].fillna(""),
+    }
+    if IS_ADMIN:
+        view_data = {"Người thực hiện": df["full_name"].fillna(df["username"]).fillna("Tài khoản cũ"), **view_data}
+    view_df = pd.DataFrame(view_data)
     event = st.dataframe(
-        view_df,
-        use_container_width=True,
-        hide_index=True,
-        on_select="rerun",
-        selection_mode="multi-row",
-        key=f"history_table_{st.session_state.history_nonce}",
+        view_df, use_container_width=True, hide_index=True, on_select="rerun",
+        selection_mode="multi-row", key=f"history_table_{st.session_state.history_nonce}",
     )
-
     selected_rows = list(event.selection.rows)
     selected_ids = df.iloc[selected_rows]["id"].tolist() if selected_rows else []
-
     st.html("<br>")
     b1, b2 = st.columns(2)
-
     with b1:
-        if st.button(
-            f"🗑  XÓA {len(selected_ids)} DÒNG ĐÃ CHỌN",
-            key="history_delete_selected",
-            disabled=not selected_ids,
-        ):
-            db.delete_ids(selected_ids)
+        if st.button(f"🗑  XÓA {len(selected_ids)} DÒNG ĐÃ CHỌN", key="history_delete_selected", disabled=not selected_ids):
+            db.delete_ids(selected_ids, user_id=scope_user_id)
             st.session_state.history_nonce += 1
             st.rerun()
-
     with b2:
         st.download_button(
             label="📥 TẢI LỊCH SỬ ĐANG LỌC (.CSV)",
             data=view_df.to_csv(index=False).encode("utf-8-sig"),
-            file_name="lich_su_phan_loai.csv",
-            mime="text/csv",
-            key="history_download",
+            file_name="lich_su_phan_loai.csv", mime="text/csv", key="history_download",
         )
-
     # ---------- Xóa toàn bộ ----------
     with st.expander("Vùng nguy hiểm: xóa toàn bộ lịch sử"):
         confirm = st.checkbox(
             "Tôi hiểu rằng thao tác này xóa vĩnh viễn toàn bộ lịch sử.",
             key="history_confirm_clear",
         )
-        if st.button(
-            "XÓA TOÀN BỘ LỊCH SỬ",
-            key="history_clear_all",
-            disabled=not confirm,
-        ):
-            db.clear_all()
+        if st.button("XÓA TOÀN BỘ LỊCH SỬ", key="history_clear_all", disabled=not confirm):
+            db.clear_all(user_id=scope_user_id)
             st.session_state.history_nonce += 1
             st.session_state.history_confirm_clear = False
             st.rerun()
@@ -1022,7 +1034,7 @@ def render_landing_page():
     )
 
     with brand:
-        st.html('<div class="landing-brand">🧠 SENTIMENT<span>AI</span></div>')
+        st.html('<div class="landing-brand">🧠 SENTIMENT<span> ANALYSIS</span></div>')
 
     with nav_home:
         if st.button(
@@ -1180,23 +1192,69 @@ st.html(
 # =========================================================
 
 @st.cache_resource
-def load_resources():
+def load_vncorenlp():
+    # Tự động lấy đường dẫn chính xác tới thư mục VnCoreNLP nằm cùng cấp với app.py
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    jar_path = os.path.join(base_dir, "VnCoreNLP", "VnCoreNLP-1.1.1.jar") # Đổi thành 1.1.1 nếu file của bạn là bản 1.1.1
+    
+    # Chỉ nạp 'wseg' (tách từ) và giới hạn RAM 1GB (-Xmx1g) để chạy mượt trên gói Free của Streamlit
+    annotator = VnCoreNLP(jar_path, annotators="wseg", max_heap_size='-Xmx512m')
+    return annotator
+@st.cache_resource
+def load_model_and_tokenizer():
+    # 1. Tải và cache Tokenizer của PhoBERT-base-v2
     tokenizer = AutoTokenizer.from_pretrained(
-        "vinai/phobert-base",
+        "vinai/phobert-base-v2",
         use_fast=False,
     )
 
-    model = PhoBERT_BILSTM_Attention()
-    model.load_state_dict(
-        torch.load("best_model.pt", map_location=torch.device("cpu"))
-    )
-    model.eval()
+    # 2. Kiểm tra và tự động tải file best_model.pt từ Hugging Face nếu chưa có trên server
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    model_path = os.path.join(base_dir, "best_model.pt")
+    
+    # Thay bằng đường link tải trực tiếp file best_model.pt trên Hugging Face của bạn
+    model_url = "https://huggingface.co/immchangnov28/vietnamese-sentiment-model/resolve/main/best_model.pt"
+    if os.path.exists(model_path) and os.path.getsize(model_path) < 1024 * 1024:
+        os.remove(model_path)
+    if not os.path.exists(model_path):
+        with st.spinner("Đang tải trọng số mô hình lần đầu, vui lòng chờ..."):
+            urllib.request.urlretrieve(model_url, model_path)
 
+    # 3. Khởi tạo kiến trúc mô hình và nạp trọng số lên CPU
+    device = torch.device("cpu")
+    model = PhoBERT_BILSTM_Attention()
+    
+    # Nếu khi lưu trên Colab bạn dùng torch.save(model.state_dict(), ...) thì giữ nguyên dòng dưới:
+    checkpoint = torch.load(model_path, map_location=device, weights_only=False)
+    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+        model.load_state_dict(checkpoint["model_state_dict"])
+    else:
+        model.load_state_dict(checkpoint)
+        
+    model.to(device)
+    model.eval()
     return tokenizer, model
+def load_resources():
+    tokenizer, model = load_model_and_tokenizer()
+    rdrsegmenter = load_vncorenlp()
+
+    return tokenizer, model, rdrsegmenter
+
+
+def segment_vietnamese_text(text, rdrsegmenter):
+    """Tách từ tiếng Việt bằng VnCoreNLP, cùng cách với preprocess.py."""
+    text = str(text).strip()
+    if not text:
+        return ""
+
+    sentences = rdrsegmenter.tokenize(text)
+    # VnCoreNLP trả về danh sách các câu, mỗi câu là danh sách token.
+    tokens = [token for sentence in sentences for token in sentence]
+    return " ".join(tokens)
 
 
 try:
-    tokenizer, model = load_resources()
+    tokenizer, model, rdrsegmenter = load_resources()
 
 except FileNotFoundError:
     st.error(
@@ -1325,11 +1383,7 @@ st.html('<div class="section-label">CHỌN CHẾ ĐỘ PHÂN TÍCH</div>')
 
 selection = st.radio(
     "Chọn chế độ phân tích",
-    [
-        "PHÂN TÍCH 1 CÂU TRỰC TIẾP",
-        "PHÂN TÍCH QUA FILE DỮ LIỆU",
-        "LỊCH SỬ PHÂN LOẠI",
-    ],
+    ["PHÂN TÍCH 1 CÂU TRỰC TIẾP", "PHÂN TÍCH QUA FILE DỮ LIỆU", "LỊCH SỬ PHÂN LOẠI"] + (["QUẢN LÝ TÀI KHOẢN"] if IS_ADMIN else []),
     horizontal=True,
     label_visibility="collapsed",
 )
@@ -1370,9 +1424,16 @@ if selection == "PHÂN TÍCH 1 CÂU TRỰC TIẾP":
             st.warning("Vui lòng không để trống ô nhập liệu.")
 
         else:
-            # ---------- Tokenization ----------
+            # ---------- Word Segmentation + PhoBERT Tokenization ----------
+            segmented_input = segment_vietnamese_text(user_input, rdrsegmenter)
+            if not segmented_input:
+                st.warning("Không có nội dung hợp lệ sau khi tách từ.")
+                st.stop()
+
+            st.caption(f"Văn bản sau khi tách từ: {segmented_input}")
+
             inputs = tokenizer(
-                user_input,
+                segmented_input,
                 return_tensors="pt",
                 max_length=64,
                 padding="max_length",
@@ -1396,6 +1457,11 @@ if selection == "PHÂN TÍCH 1 CÂU TRỰC TIẾP":
             else:
                 prediction, confidence = 0, negative_conf
 
+            try:
+                db.save_prediction(user_input.strip(), db.LABEL_POS if prediction == 1 else db.LABEL_NEG, positive_conf, negative_conf, user_id=CURRENT_USER["id"])
+            except Exception as e:
+                st.warning(f"Không thể lưu lịch sử: {e}")
+
             # ---------- Result ----------
             st.html("<br>")
             st.html('<div class="section-label">PREDICTION RESULT</div>')
@@ -1406,18 +1472,6 @@ if selection == "PHÂN TÍCH 1 CÂU TRỰC TIẾP":
             else:
                 show_negative_effect()
                 st.error(f"😡  **TIÊU CỰC**   •   Độ tin cậy: **{confidence:.2f}%**")
-
-            # ---------- Lưu lịch sử ----------
-            try:
-                db.save_prediction(
-                    user_input.strip(),
-                    db.LABEL_POS if prediction == 1 else db.LABEL_NEG,
-                    positive_conf,
-                    negative_conf,
-                )
-                st.caption("✔ Đã lưu vào lịch sử phân loại.")
-            except Exception as e:
-                st.warning(f"Không thể lưu lịch sử: {e}")
 
             col_a, col_b = st.columns(2)
             with col_a:
@@ -1533,7 +1587,7 @@ elif selection == "PHÂN TÍCH QUA FILE DỮ LIỆU":
         # ---------- Chạy phân tích ----------
         if st.button("⚡  CHẠY PHÂN TÍCH HÀNG LOẠT"):
             predictions = []
-            pos_list, neg_list = [], []
+            positive_probs, negative_probs = [], []
             total = len(df)
             loader_placeholder = st.empty()
             device = next(model.parameters()).device
@@ -1558,8 +1612,9 @@ elif selection == "PHÂN TÍCH QUA FILE DỮ LIỆU":
                         """
                     )
 
+                segmented_text = segment_vietnamese_text(text, rdrsegmenter)
                 inputs = tokenizer(
-                    str(text),
+                    segmented_text,
                     padding="max_length",
                     truncation=True,
                     max_length=64,
@@ -1574,29 +1629,19 @@ elif selection == "PHÂN TÍCH QUA FILE DỮ LIỆU":
 
                 pos_p = probs[0][1].item() * 100
                 neg_p = probs[0][0].item() * 100
-                pos_list.append(pos_p)
-                neg_list.append(neg_p)
+                positive_probs.append(pos_p)
+                negative_probs.append(neg_p)
                 predictions.append(db.LABEL_POS if pos_p > neg_p else db.LABEL_NEG)
 
             loader_placeholder.empty()
 
-            df["Dự đoán cảm xúc"] = predictions
-            df["Độ tin cậy (%)"] = [
-                round(max(p, n), 2) for p, n in zip(pos_list, neg_list)
-            ]
-
-            # ---------- Lưu lịch sử ----------
             try:
-                db.save_batch(
-                    uploaded_file.name,
-                    df[text_column].astype(str).tolist(),
-                    predictions,
-                    pos_list,
-                    neg_list,
-                )
+                db.save_batch(uploaded_file.name, df[text_column].astype(str).tolist(), predictions, positive_probs, negative_probs, user_id=CURRENT_USER["id"])
                 st.success(f"✔ Đã lưu {total:,} dòng vào lịch sử phân loại.")
             except Exception as e:
                 st.warning(f"Không thể lưu lịch sử: {e}")
+
+            df["Dự đoán cảm xúc"] = predictions
 
             csv_bytes = df.to_csv(index=False).encode("utf-8-sig")
 
@@ -1677,12 +1722,11 @@ elif selection == "PHÂN TÍCH QUA FILE DỮ LIỆU":
                     )
 
 
-# =========================================================
-# OPTION 3 - HISTORY
-# =========================================================
-
-else:
+elif selection == "LỊCH SỬ PHÂN LOẠI":
     render_history_page()
+
+elif selection == "QUẢN LÝ TÀI KHOẢN" and IS_ADMIN:
+    render_account_management()
 
 
 # =========================================================
