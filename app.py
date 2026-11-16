@@ -1083,17 +1083,8 @@ def render_landing_page():
         ):
             st.session_state.landing_view = "about"
             st.rerun()
- 
     with nav_account:
         st.caption(f"{CURRENT_USER['full_name']} · {db.ROLES.get(CURRENT_USER['role'], CURRENT_USER['role'])}")
-        switch_col, logout_col = st.columns(2)
-        with switch_col:
-            if st.button("Đổi tài khoản", key="switch_account_landing", use_container_width=True):
-                st.session_state.auth_user = None
-                st.session_state.show_analysis = False
-                st.session_state.system_page = "PHÂN TÍCH"
-                st.rerun()
-        with logout_col:
             if st.button("Đăng xuất", key="logout_landing", use_container_width=True):
                 st.session_state.auth_user = None
                 st.session_state.show_analysis = False
