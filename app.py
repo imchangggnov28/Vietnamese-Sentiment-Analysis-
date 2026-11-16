@@ -785,6 +785,23 @@ div[data-testid="stAlert"] {
     .about-panel { padding: 24px; }
 }
 
+
+/* ---------- AUTH + SYSTEM NAV ---------- */
+.auth-shell { max-width: 1120px; margin: 5vh auto; display:grid; grid-template-columns: 1fr 1fr; min-height:620px; background:rgba(15,16,48,.94); border:1px solid rgba(139,92,246,.35); border-radius:24px; overflow:hidden; box-shadow:0 25px 80px rgba(0,0,0,.35); }
+.auth-copy { padding:58px 52px; display:flex; flex-direction:column; justify-content:center; }
+.auth-kicker { color:#22d3ee; font:12px monospace; letter-spacing:3px; }
+.auth-title { color:#f2efff; font-size:34px; font-weight:800; line-height:1.2; margin:18px 0 12px; }
+.auth-desc { color:#a9a5c8; font-size:15px; line-height:1.8; margin-bottom:28px; }
+.auth-art { background:radial-gradient(circle at 50% 35%,rgba(34,211,238,.16),transparent 35%),linear-gradient(145deg,#17143d,#08091c); display:flex; align-items:center; justify-content:center; padding:35px; position:relative; }
+.auth-art-inner { text-align:center; border:1px solid rgba(139,92,246,.35); border-radius:28px; padding:55px 35px; width:100%; background:rgba(7,8,23,.35); }
+.auth-emoji { font-size:112px; filter:drop-shadow(0 0 22px rgba(139,92,246,.5)); }
+.auth-art-title { color:#e9e4ff; font-size:22px; font-weight:800; margin-top:18px; }
+.auth-art-desc { color:#a9a5c8; line-height:1.7; margin-top:10px; }
+.system-nav { display:flex; gap:12px; margin:18px 0 24px; flex-wrap:wrap; }
+.system-nav div[data-testid="stButton"] { flex:1; min-width:190px; }
+.system-nav div[data-testid="stButton"] button { min-height:54px; border:1px solid rgba(139,92,246,.45); background:rgba(15,16,48,.92); color:#e9e4ff; font-weight:700; }
+.system-nav div[data-testid="stButton"] button:hover { border-color:#22d3ee; color:#22d3ee; }
+@media(max-width:850px){ .auth-shell{grid-template-columns:1fr;margin:0 auto}.auth-art{min-height:280px}.auth-copy{padding:32px 24px}.auth-title{font-size:27px} }
 </style>
     """,
     unsafe_allow_html=True,
@@ -801,6 +818,10 @@ if "landing_view" not in st.session_state:
     st.session_state.landing_view = "home"
 if "history_nonce" not in st.session_state:
     st.session_state.history_nonce = 0
+if "system_page" not in st.session_state:
+    st.session_state.system_page = "PHÂN TÍCH"
+if "analysis_mode" not in st.session_state:
+    st.session_state.analysis_mode = "PHÂN TÍCH 1 CÂU TRỰC TIẾP"
 
 # Khởi tạo SQLite và xác thực người dùng. Phần tải model bên dưới được giữ nguyên.
 try:
@@ -813,30 +834,41 @@ if "auth_user" not in st.session_state:
     st.session_state.auth_user = None
 
 if st.session_state.auth_user is None:
-    st.markdown("## 🔐 ĐĂNG NHẬP HỆ THỐNG")
-    with st.form("login_form"):
-        login_name = st.text_input("Tên đăng nhập")
-        login_password = st.text_input("Mật khẩu", type="password")
-        submitted = st.form_submit_button("ĐĂNG NHẬP", use_container_width=True)
-    if submitted:
-        account = db.authenticate(login_name, login_password)
-        if account:
-            st.session_state.auth_user = account
-            st.rerun()
-        else:
-            st.error("Tên đăng nhập hoặc mật khẩu không đúng, hoặc tài khoản đã bị khóa.")
-    st.info("Tài khoản quản trị mặc định: admin / Admin@123. Hãy đổi mật khẩu ngay sau lần đăng nhập đầu tiên.")
+    st.markdown("""
+    <div class="auth-shell">
+      <div class="auth-copy">
+        <div class="auth-kicker">SENTIMENT AI • SECURE ACCESS</div>
+        <div class="auth-title">Chào mừng bạn<br>trở lại hệ thống</div>
+        <div class="auth-desc">Đăng nhập để phân tích cảm xúc tiếng Việt, theo dõi lịch sử dự đoán và quản lý dữ liệu theo quyền được cấp.</div>
+      </div>
+      <div class="auth-art">
+        <div class="auth-art-inner">
+          <div class="auth-emoji">🧠 💬</div>
+          <div class="auth-art-title">VIETNAMESE SENTIMENT AI</div>
+          <div class="auth-art-desc">PhoBERT · BiLSTM · Attention<br>Hiểu cảm xúc ẩn sau từng câu chữ</div>
+        </div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+    _, login_col, _ = st.columns([1, 1.2, 1])
+    with login_col:
+        st.markdown("### Đăng nhập tài khoản")
+        with st.form("login_form"):
+            st.text_input("Tên đăng nhập", placeholder="Nhập tên đăng nhập", key="login_username")
+            st.text_input("Mật khẩu", type="password", placeholder="Nhập mật khẩu", key="login_password")
+            submitted = st.form_submit_button("ĐĂNG NHẬP HỆ THỐNG", use_container_width=True)
+        if submitted:
+            account = db.authenticate(st.session_state.login_username, st.session_state.login_password)
+            if account:
+                st.session_state.auth_user = account
+                st.rerun()
+            else:
+                st.error("Tên đăng nhập hoặc mật khẩu không đúng, hoặc tài khoản đã bị khóa.")
+        st.caption("Tài khoản quản trị mặc định: admin / Admin@123. Hãy đổi mật khẩu sau lần đăng nhập đầu tiên.")
     st.stop()
 
 CURRENT_USER = st.session_state.auth_user
 IS_ADMIN = CURRENT_USER["role"] == "admin"
-
-with st.sidebar:
-    st.markdown(f"**{CURRENT_USER['full_name']}** (@{CURRENT_USER['username']})")
-    st.caption(db.ROLES.get(CURRENT_USER['role'], CURRENT_USER['role']))
-    if st.button("Đăng xuất", key="logout_button"):
-        st.session_state.auth_user = None
-        st.rerun()
 
 
 # =========================================================
@@ -959,7 +991,7 @@ def render_history_page():
         source_filter = st.selectbox("Nguồn dữ liệu", ["Tất cả", "Câu nhập trực tiếp", "File dữ liệu"])
     with f3:
         limit = st.selectbox("Số dòng hiển thị", [50, 100, 500, 1000])
-    keyword = st.text_input("Tìm kiếm", placeholder="Tìm theo nội dung hoặc tên file...", label_visibility="collapsed", key="history_keyword")
+    keyword = st.text_input("Tìm kiếm nội dung hoặc tên file", placeholder="Nhập từ khóa cần tìm...", key="history_keyword")
     source_map = {"Câu nhập trực tiếp": "single", "File dữ liệu": "batch"}
     try:
         df = db.get_history(
@@ -1010,12 +1042,11 @@ def render_history_page():
     with st.expander("Vùng nguy hiểm: xóa toàn bộ lịch sử"):
         confirm = st.checkbox(
             "Tôi hiểu rằng thao tác này xóa vĩnh viễn toàn bộ lịch sử.",
-            key="history_confirm_clear",
+            key=f"history_confirm_clear_{st.session_state.history_nonce}",
         )
         if st.button("XÓA TOÀN BỘ LỊCH SỬ", key="history_clear_all", disabled=not confirm):
             db.clear_all(user_id=scope_user_id)
             st.session_state.history_nonce += 1
-            st.session_state.history_confirm_clear = False
             st.rerun()
 
 
@@ -1028,8 +1059,8 @@ def render_landing_page():
 
     # ---------- Navigation ----------
     # Key đổi theo trạng thái (_on / _off) để CSS tô màu nút đang chọn
-    brand, nav_home, nav_about = st.columns(
-        [3.2, 1, 1],
+    brand, nav_home, nav_about, nav_account = st.columns(
+        [3.0, 0.9, 0.9, 1.8],
         vertical_alignment="center",
     )
 
@@ -1053,6 +1084,22 @@ def render_landing_page():
         ):
             st.session_state.landing_view = "about"
             st.rerun()
+ 
+    with nav_account:
+        st.caption(f"{CURRENT_USER['full_name']} · {db.ROLES.get(CURRENT_USER['role'], CURRENT_USER['role'])}")
+        switch_col, logout_col = st.columns(2)
+        with switch_col:
+            if st.button("Đổi tài khoản", key="switch_account_landing", use_container_width=True):
+                st.session_state.auth_user = None
+                st.session_state.show_analysis = False
+                st.session_state.system_page = "PHÂN TÍCH"
+                st.rerun()
+        with logout_col:
+            if st.button("Đăng xuất", key="logout_landing", use_container_width=True):
+                st.session_state.auth_user = None
+                st.session_state.show_analysis = False
+                st.session_state.system_page = "PHÂN TÍCH"
+                st.rerun()
 
     # ---------- Home ----------
     if view == "home":
@@ -1253,21 +1300,15 @@ def segment_vietnamese_text(text, rdrsegmenter):
     return " ".join(tokens)
 
 
-try:
-    tokenizer, model, rdrsegmenter = load_resources()
-
-except FileNotFoundError:
-    st.error(
-        "⚠️ Không tìm thấy file 'best_model.pt'. "
-        "Vui lòng đặt file trọng số cùng thư mục với app.py."
-    )
-    render_back_button()
-    st.stop()
-
-except Exception as e:
-    st.error(f"⚠️ Không thể tải mô hình. Chi tiết: {str(e)}")
-    render_back_button()
-    st.stop()
+if st.session_state.system_page == "PHÂN TÍCH":
+    try:
+        tokenizer, model, rdrsegmenter = load_resources()
+    except FileNotFoundError:
+        st.error("⚠️ Không tìm thấy file 'best_model.pt'. Vui lòng đặt file trọng số cùng thư mục với app.py.")
+        st.stop()
+    except Exception as e:
+        st.error(f"⚠️ Không thể tải mô hình. Chi tiết: {str(e)}")
+        st.stop()
 
 
 # =========================================================
@@ -1376,20 +1417,40 @@ def show_negative_effect():
 
 
 # =========================================================
-# MODE SELECTION
+# SYSTEM NAVIGATION - ALWAYS VISIBLE
 # =========================================================
 
-st.html('<div class="section-label">CHỌN CHẾ ĐỘ PHÂN TÍCH</div>')
+st.html('<div class="section-label">KHU VỰC CHỨC NĂNG</div>')
+st.markdown('<div class="system-nav">', unsafe_allow_html=True)
+nav_cols = st.columns(3 if IS_ADMIN else 2)
+nav_items = [("PHÂN TÍCH", "🧠  PHÂN TÍCH"), ("LỊCH SỬ", "📚  XEM LỊCH SỬ PHÂN LOẠI CẢM XÚC")]
+if IS_ADMIN:
+    nav_items.append(("QUẢN LÝ TÀI KHOẢN", "👥  QUẢN LÝ TÀI KHOẢN"))
+for col, (page_key, page_label) in zip(nav_cols, nav_items):
+    with col:
+        if st.button(page_label, key=f"system_nav_{page_key}", use_container_width=True, type="primary" if st.session_state.system_page == page_key else "secondary"):
+            st.session_state.system_page = page_key
+            st.rerun()
+st.markdown('</div>', unsafe_allow_html=True)
 
+if st.session_state.system_page == "LỊCH SỬ":
+    render_history_page()
+    render_back_button()
+    st.stop()
+elif st.session_state.system_page == "QUẢN LÝ TÀI KHOẢN" and IS_ADMIN:
+    render_account_management()
+    render_back_button()
+    st.stop()
+
+# Trang phân tích: chọn hình thức phân tích trực tiếp hoặc qua file
+st.html('<div class="section-label">CHỌN HÌNH THỨC PHÂN TÍCH</div>')
 selection = st.radio(
-    "Chọn chế độ phân tích",
-    ["PHÂN TÍCH 1 CÂU TRỰC TIẾP", "PHÂN TÍCH QUA FILE DỮ LIỆU", "LỊCH SỬ PHÂN LOẠI"] + (["QUẢN LÝ TÀI KHOẢN"] if IS_ADMIN else []),
+    "Hình thức phân tích",
+    ["PHÂN TÍCH 1 CÂU TRỰC TIẾP", "PHÂN TÍCH QUA FILE DỮ LIỆU"],
     horizontal=True,
-    label_visibility="collapsed",
+    key="analysis_mode",
 )
-
 st.html("<br>")
-
 
 # =========================================================
 # OPTION 1 - SINGLE TEXT
@@ -1404,7 +1465,6 @@ if selection == "PHÂN TÍCH 1 CÂU TRỰC TIẾP":
     user_input = st.text_input(
         "Nhập câu cần phân tích",
         placeholder="Ví dụ: Sản phẩm này dùng rất tốt, tôi rất hài lòng...",
-        label_visibility="collapsed",
     )
 
     c1, c2, c3, c4 = st.columns(4)
@@ -1722,18 +1782,9 @@ elif selection == "PHÂN TÍCH QUA FILE DỮ LIỆU":
                     )
 
 
-elif selection == "LỊCH SỬ PHÂN LOẠI":
-    render_history_page()
-
-elif selection == "QUẢN LÝ TÀI KHOẢN" and IS_ADMIN:
-    render_account_management()
-
-
 # =========================================================
 # BACK BUTTON (CUỐI TRANG) + FOOTER
 # =========================================================
-
-render_back_button()
 
 st.html(
     """
