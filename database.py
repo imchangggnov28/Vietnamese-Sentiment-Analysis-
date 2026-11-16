@@ -73,7 +73,7 @@ def get_history(label=None,source=None,keyword=None,limit=100,user_id=None):
  if source: w.append("p.source=?"); a.append(source)
  if keyword and keyword.strip():
     like = f"%{keyword.strip()}%"
-    w.append("(p.text LIKE ? OR p.file_name LIKE ? OR p.source LIKE ?)")
+    w.append("(p.text LIKE ? OR p.file_name LIKE ? OR p.id LIKE ?)")
     a.extend([like, like, like])
  where=("WHERE "+" AND ".join(w)) if w else ""
  q=f"SELECT p.id,p.created_at,p.source,p.file_name,p.text,p.label,p.user_id,u.username,u.full_name,p.positive_prob,p.negative_prob,MAX(p.positive_prob,p.negative_prob) confidence FROM predictions p LEFT JOIN users u ON u.id=p.user_id {where} ORDER BY p.id DESC LIMIT ?"; a.append(int(limit))
