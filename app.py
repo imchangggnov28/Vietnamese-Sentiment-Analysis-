@@ -903,10 +903,10 @@ def render_account_management():
     with st.expander("➕ TẠO TÀI KHOẢN MỚI", expanded=True):
         with st.form("create_account_form"):
             c1, c2 = st.columns(2)
-            username = c1.text_input("Tên đăng nhập")
-            full_name = c2.text_input("Họ và tên")
+            username = c1.text_input("Tên đăng nhập", placeholder="Nhập tên đăng nhập")
+            full_name = c2.text_input("Họ và tên", placeholder="Nhập họ và tên")
             c3, c4 = st.columns(2)
-            password = c3.text_input("Mật khẩu (ít nhất 8 ký tự)", type="password")
+            password = c3.text_input("Mật khẩu (ít nhất 8 ký tự)", type="password", placeholder="Nhập mật khẩu")
             role_label = c4.selectbox("Vai trò", ["Người dùng", "Quản trị viên"])
             if st.form_submit_button("TẠO TÀI KHOẢN", use_container_width=True):
                 try:
@@ -927,7 +927,7 @@ def render_account_management():
             new_name = st.text_input("Họ và tên", value=selected["full_name"])
             new_role_label = st.selectbox("Vai trò", ["Người dùng", "Quản trị viên"], index=0 if selected["role"] == "user" else 1)
             active = st.checkbox("Tài khoản đang hoạt động", value=bool(selected["is_active"]))
-            new_password = st.text_input("Mật khẩu mới (để trống nếu không đổi)", type="password")
+            new_password = st.text_input("Mật khẩu mới (để trống nếu không đổi)", type="password", placeholder="Nhập mật khẩu mới (để trống nếu không đổi)")
             if st.form_submit_button("LƯU THAY ĐỔI", use_container_width=True):
                 if int(selected_id) == int(CURRENT_USER["id"]) and (not active or new_role_label != "Quản trị viên"):
                     st.error("Không thể tự khóa hoặc tự hạ quyền tài khoản quản trị đang đăng nhập.")
@@ -1448,6 +1448,7 @@ selection = st.radio(
     ["PHÂN TÍCH 1 CÂU TRỰC TIẾP", "PHÂN TÍCH QUA FILE DỮ LIỆU"],
     horizontal=True,
     key="analysis_mode",
+    label_visibility="collapsed",
 )
 st.html("<br>")
 
